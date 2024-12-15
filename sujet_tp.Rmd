@@ -41,20 +41,20 @@ probes = colnames(data_train)[5:10004]
 head(data_train[,probes[1:10]])
 plot(density(as.matrix(data_train[,probes])))
 ```
+On voit apparaitre deux piques, ça va nous permettre de faire plus facilement la distinction entre les cas où il y a méthylation (0.7-1.0) et les cas où il n'y a pas méthylation (0-0.2). On va égalament pouvoir considérer que la distribution de la valeur de chaque sonde est gaussienne.
 
 Distribution du statut tabagique des patients dans `data_train`
-
 ```{r, echo=TRUE, results="verbatim"}
 head(data_train[,1:4])
 table(data_train$smoking_status)
 ```
+Les 3 statuts sont présents de manière presque équidistribuées. On peut pas juste prédire avec le modèle nulle qui renvoie comme résultat le statut le plus commun. On aurait lors environ 60% d'erreur.
 
 
 # `data_train1` et `data_train2`
-
+Pour pouvoir tester nos modèles on sépare les données data_train en 2 : un jeu sur lequel nous allons entrainer les données et un jeu sur lequel on testera nos modèles pusique l'on pourra comparer les valeurs prédites par le modèle et la véritable valeur.
 
 Nous séparons ici `data_train` en 2 jeux de données `data_train1` et `data_train2`.
-
 ```{r, echo=TRUE, results="verbatim"}
 set.seed(1)
 data_train1 = data_train[sample(1:nrow(data_train), round(nrow(data_train) * .75)),]
@@ -78,6 +78,7 @@ data_train1_enh = data_train1
 # dim(data_train1)
 # tail(data_train1[,1:6])
 ```
+On remarque que les proportions de chaque groupe (chaque statu tabagique) ne sont pas exactement les mêmes entre data_train1 et data_train2.
 
 L’ojectif maintenant est : 
 
@@ -94,25 +95,26 @@ réaliser autant d’ANOVA du type $probe \sim smoking_status$ qu’il y a de so
 
 ```{r screening, echo=TRUE, results="verbatim"}
 siscreening = function(data_train) {
-  probes = colnames(data_train)[5:10004]        # to be update
-  pval_fisher = c()
+  probes = colnames(data_train)[5:10004]  # Noms des sondes
+  pval_fisher = c() 
   r2 = c()
   for (p in probes) {
-    m = lm(data_train[,p]~data_train[,"smoking_status"])    
-    pval_fisher = c(pval_fisher, anova(m)[1,5])  
-    r2 = c(r2, summary(m)$r.squared)
+    m = lm(data_train[,p]~data_train[,"smoking_status"])  #On crée un modèle linéaire sonde~smoking_status
+    pval_fisher = c(pval_fisher, anova(m)[1,5])  # On récupère la p-valeur du modèle
+    r2 = c(r2, summary(m)$r.squared) # On récupère le r2 associé à ce modèle
   }
   names(pval_fisher)  = probes
   names(r2)           = probes  
-  return(data.frame(pval_fisher=pval_fisher, r2=r2))
+  return(data.frame(pval_fisher=pval_fisher, r2=r2)) # On renvoie le dataframe  contenant les p-valeur et le r2 pour chaque modèle
 }
-if (!exists("msiscreening")) {msiscreening = memoise::memoise(siscreening)}
+if (!exists("msiscreening")) {msiscreening = memoise::memoise(siscreening)} # On mémoise la fonciton pour mettre le résultat en cache.
 
-sis_res = msiscreening(data_train1)  
-head(sis_res)
+sis_res = msiscreening(data_train1) # On recupère les p-valeur et r2 pour chaque sonde sur les données de data_train1
+head(sis_res) # On affiche les 6 premières valeurs du dataframe (pas d'ordre)
 ```
 
 2. Peut-on tracer le **volcano plot** correspondant au screening ?
+Ici, on ne peut pas tracer de volcano plot comme pour le TP précédent sur l'âge car on a pas la valeur de beta puisqu'ici on explique une quantitative par une qualitative et non pas une quantitative.
 
 3. Commentez le graphique en abscisse le $R^2$ de chaque modéle indépendant et en ordonnée le $-log10(pval_{fisher})$ correspondant. Pensez aux titres. Commentez.
 
@@ -120,37 +122,40 @@ head(sis_res)
 layout(matrix(1:2, 1), respect=TRUE)
 plot(sis_res$r2, -log10(sis_res$pval))                  
 ```
+On a une relation logarithme : quand la p-valye devient très petite (-log10(p_val) grand), le R² augmente.
 
+
+On ordonne donc les sondes (probes) en fonction de leur p-valeur pour avoir les modèles avec les meilleurs R², c'est le data_frame sis_probes.
 ```{r head8_sis, fig.height=9, echo=TRUE, results="verbatim"}
 sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
-head(sis_probes,6)
+head(sis_probes,6) # Les 6 meilleure sondes par rapport à la p-value (plus petite p-value et + grand R2).
 ```
 
 4. Commentez le code et les graphiques suivants : 
 
 ```{r sis_1, echo=TRUE, results="verbatim"}
+# On crée les 6 modèles linéaires liés aux 6 meilleurs sondes.
 m1 = lm(data_train1[,sis_probes[1]]~data_train1[,"smoking_status"])
 m2 = lm(data_train1[,sis_probes[2]]~data_train1[,"smoking_status"])
 m3 = lm(data_train1[,sis_probes[3]]~data_train1[,"smoking_status"])
 m4 = lm(data_train1[,sis_probes[4]]~data_train1[,"smoking_status"])
 m5 = lm(data_train1[,sis_probes[5]]~data_train1[,"smoking_status"])
 m6 = lm(data_train1[,sis_probes[6]]~data_train1[,"smoking_status"])
+
+# Pour ces 6 modèles, on affiche les boxplot associés la méthylation en fonction du statut tabagique ainsi que le R2 du modèle.
 layout(matrix(1:6, 2), respect=TRUE)
-boxplot(data_train1[,sis_probes[1]]~data_train1[,"smoking_status"], main=paste0(sis_probes[1], "~smoking_status R^2: ", signif(summary(m1)$r.squared, 3)))
-boxplot(data_train1[,sis_probes[2]]~data_train1[,"smoking_status"], main=paste0(sis_probes[2], "~smoking_status R^2: ", signif(summary(m2)$r.squared, 3)))
-boxplot(data_train1[,sis_probes[3]]~data_train1[,"smoking_status"], main=paste0(sis_probes[3], "~smoking_status R^2: ", signif(summary(m3)$r.squared, 3)))
-boxplot(data_train1[,sis_probes[4]]~data_train1[,"smoking_status"], main=paste0(sis_probes[4], "~smoking_status R^2: ", signif(summary(m4)$r.squared, 3)))
-boxplot(data_train1[,sis_probes[5]]~data_train1[,"smoking_status"], main=paste0(sis_probes[5], "~smoking_status R^2: ", signif(summary(m5)$r.squared, 3)))
-boxplot(data_train1[,sis_probes[6]]~data_train1[,"smoking_status"], main=paste0(sis_probes[6], "~smoking_status R^2: ", signif(summary(m6)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[1]]~data_train1[,"smoking_status"], main=paste0(sis_probes[1], "~R^2: ", signif(summary(m1)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[2]]~data_train1[,"smoking_status"], main=paste0(sis_probes[2], "~R^2: ", signif(summary(m2)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[3]]~data_train1[,"smoking_status"], main=paste0(sis_probes[3], "~R^2: ", signif(summary(m3)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[4]]~data_train1[,"smoking_status"], main=paste0(sis_probes[4], "~R^2: ", signif(summary(m4)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[5]]~data_train1[,"smoking_status"], main=paste0(sis_probes[5], "~R^2: ", signif(summary(m5)$r.squared, 3)))
+boxplot(data_train1[,sis_probes[6]]~data_train1[,"smoking_status"], main=paste0(sis_probes[6], "~R^2: ", signif(summary(m6)$r.squared, 3)))
 ```
-
-
+Ils ont tous un R2 proche de 0.1, c'est mieux que rien mais
 
 5. Le code suivant réalise l’ACP de `data_train1` pour les 10 premières `sis_probes` et
    tracez le barycentre de chacun des trois groupes (`current`, `former`, `never`).
    Commentez.
-
-
 ```{r}
 data = as.matrix(data_train1[, sis_probes[1:10]])
 cols = as.numeric(data_train1$smoking_status)
@@ -191,9 +196,8 @@ legend("bottomright", levels(data_train1$smoking_status), pch=16, col=1:length(l
 ```
 
 6. Le code suivant construit plusieurs modèles prédisant la colonne `current01`. Commentez l’évolution de l’erreur.
-
-  
 ```{r echo=TRUE, results="verbatim"}
+# Current
 model_sis_i = function(data_train, i, screening_func=msiscreening) { 
   print(paste0("model sis ", i))
   sis_res = screening_func(data_train)  
@@ -219,12 +223,12 @@ for (i in 0:50) {
 layout(matrix(1:2,1), respect=TRUE)
 plot(iap1, col=4, pch=16, cex=2)
 points(iap2, col=2, pch=16, cex=2)
-legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=2)
+legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=1)
 i=30
 abline(v=i, col=2)
 
 
-# prediction on data_test
+# prediction on data_train2
 m = model_sis_i(data_train, i)
 pred_test = predict.glm(m, data_test, type="response")
 plot(density(pred_test), main=paste0("i=", i))
@@ -234,8 +238,46 @@ data_test$current01 = ifelse(pred_test>thresh, 1, 0)
 ```
 
 7. En vous fondant sur ce code, construisez un modèle qui prédit les colonnes `former01`, `never01`, puis `smoking_status`
+```{r echo=TRUE, results="verbatim"}
+# Never smoked
+model_sis_i = function(data_train, i, screening_func=msiscreening) { 
+  print(paste0("model sis ", i))
+  sis_res = screening_func(data_train)  
+  sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
+  formula = as.formula(paste0(c("never01~1", sis_probes[0:i]), collapse="+")) ; 
+  # print(formula)
+  dim(data_train)
+  m = glm(formula, data_train, family=binomial(link="logit"))
+  return(m)
+}
+
+# IAP: Incorrect Answers Proportion
+iap1 = c()
+iap2 = c()
+for (i in 0:50) {
+  m = model_sis_i(data_train1, i)
+  pred_train1 = predict.glm(m, data_train1, type="response")
+  pred_train2 = predict.glm(m, data_train2, type="response")
+  iap1 = c(iap1, sum(ifelse(pred_train1>0.5, 1, 0) != data_train1$current01) / nrow(data_train1))
+  iap2 = c(iap2, sum(ifelse(pred_train2>0.5, 1, 0) != data_train2$current01) / nrow(data_train2))
+} 
+
+layout(matrix(1:2,1), respect=TRUE)
+plot(iap1, col=4, pch=16, cex=2)
+points(iap2, col=2, pch=16, cex=2)
+legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=1)
+i=30
+abline(v=i, col=2)
 
 
+# prediction on data_train2
+m = model_sis_i(data_train, i)
+pred_test = predict.glm(m, data_test, type="response")
+plot(density(pred_test), main=paste0("i=", i))
+thresh = .65
+abline(v=thresh, col=2)
+data_test$current01 = ifelse(pred_test>thresh, 1, 0)
+```
 
 
 
