@@ -1,11 +1,11 @@
 ---
-title: "Rapport_GLM"
-author: "Garance Malnoë"
-date: "2024-12-15"
+title: "GLM - Data challenge Epismoke 2.1"
+author: "Garance Malnoë, Matthias Mazet, Léonie Breuzat"
+date: "18 décembre 2024"
 output: html_document
 ---
 
-
+Ce datachallenge consiste à prédire le statut tabagique d'individu : actuellement fumeur (current), ancien fumer (former) ou n'ayant jamais fumé (never). Pour cela, nous allons étudier trois méthodes différentes que nous entrainerons sur le jeu de données `data_train` et que nous testerons sur le jeu de données `data_test`. 
 ```{r}
 data_train = readRDS(file = "data_train.rds") # Données de train 
 data_test = readRDS(file = "data_test.rds") # Données de test
@@ -13,32 +13,45 @@ dim(data_train)
 dim(data_test)
 head(data_train[,1:6])
 ```
+Les deux jeux de données `data_train` et `data_test`, sont composés de  421 et 200 individus respectivement et de 10004 variables :
 
+- smoking_status : variable qualitative (current, former, never) que l'on cherche à prédire.
+
+- never/former/current01 : la transformation en variables binaires de la variable smoking_status qui va nous permettre de construire les modèles.
+
+- cg######## : variables quantitatives (sondes) représentant le taux de méthylation de différents gènes qui seront les variables explicatives.
+
+# Prétraitement
+
+On commence par un pré-traitement qui sera commun aux trois modèles.
+
+On récupère le noms des colonnes correspondants aux sondes (variables exmplicatives).
 ```{r}
-probes = colnames(data_train)[5:10004] #Nom des sondes
+#Nom des sondes
+probes = colnames(data_train)[5:10004] 
 head(data_train[,probes[1:10]])
 ```
-
+On trace la densité des 
 ```{r}
 # Description statistique : la densité 
-plot(density(as.matrix(data_train[,probes])))
+plot(density(as.matrix(data_train[,probes])),main="Densité des valeurs prises par les sondes", xlab="Densité",ylab="Valeurs prises par les variables (methylation)")
 ```
-On voit apparaitre deux piques, ça va nous permettre de faire plus facilement 
-la distinction entre les cas où il y a méthylation (0.7-1.0) et les cas où il n'y a pas de 
-méthylation (0-0.2). On va égalament pouvoir considérer que la distribution de 
-la valeur de chaque sonde est gaussienne.
 
+Sur le graphique, nous pouvons voir apparaitre deux pics : un premier dans l'intervalle $[0;0.2]$ (absence de méthylation) et un second dans l'intervalle $[0;0.7]$ (présence de methylation). 
+
+Regardons la distribution des statuts tabagiques
 ```{r}
 table(data_train$smoking_status)
+prop.table(table(data_train$smoking_status))
 ```
-Les 3 statuts sont présents de manière presque équidistribuées. On peut pas juste prédire avec le modèle nulle qui renvoie comme résultat le statut le plus commun. On aurait lors environ 60% d'erreur.
+Les 3 statuts sont présents de manière presque équidistribuées. Si on choisissait le modèle nul renvoyant dans tous les cas "former" (le statut le plus courant), on pourrait s'attendre à environ 60% d'erreur.
 
-Remarque : On obtenait 63% d'erreur sur codabench avec le modèle nul
+Pour entrainer nos modèles et pouvoir les tester notamment pour faire de l'hyperparamétrage, nous allons séparer le jeu de donénes `data_train` en deux parties : une partie pour l'entrainement `data_train1` (75%) et une partie pour le test `data_train2` (25%).
 ```{r}
-# Séparation des données d'entrainement pour pouvoir faire de l'optimisation des features.
-set.seed(1) # On prend une seed 1 pour avoir des résultats aléatoire reproductibles.
+set.seed(1) # Pour avoir des résultats aléatoire reproductibles.
 
-data_train1 = data_train[sample(1:nrow(data_train), round(nrow(data_train) * .75)),] # On prend 75% pour l'entrainement et 25% pour l'optimisation des features
+data_train1 = data_train[sample(1:nrow(data_train), round(nrow(data_train)*.75))
+                         ,]
 data_train2 = data_train[setdiff(rownames(data_train), rownames(data_train1)),]
 ```
 
@@ -49,34 +62,38 @@ prop.table(table(data_train2$smoking_status))
 ```
 On remarque que les proportions de chaque groupe (chaque statut tabagique) ne sont pas exactement les mêmes entre data_train1 et data_train2.
 
-
+Pour les trois modèles, nous n'allons pas utiliser toutes les sondes pour construire nos modèles pour éviter le surajustement et parce que tout simplement certaines sondes n'apportent pas ou peu d'informations. Pour sélectionner les sondes, nous allons construire les modèles linéaires de la forme `lm(sonde~smoking_status)` pour chaque sonde. Cela nous permettra d'étudier la significativité du lien entre le statut tabagique et chaque sonde  à partir de la p-valeur associée au coefficent directeur et ainsi de classer les sondes. 
 ```{r}
-# Tester la significativité des sondes
-# Commentaire : On ne peut pas constuire de lm(smoking_status~sonde) donc on va plutôt regarder lm(sonde~smoking_status) parce que l'on peut supposer que si le smoking_status décrit bien la sonde alors la sonde va assez bien décrire le smoking_status
 siscreening = function(data_train) {
   probes = colnames(data_train)[5:length(data_train)]  # Noms des sondes
   pval_fisher = c()
   r2 = c()
   for (p in probes) {
-    m = lm(data_train[,p]~data_train[,"smoking_status"])  #On crée un modèle linéaire sonde~smoking_status
-    pval_fisher = c(pval_fisher, anova(m)[1,5])  # On récupère la p-valeur du modèle
-    r2 = c(r2, summary(m)$r.squared) # On récupère le r2 associé à ce modèle
+    #On crée un modèle linéaire sonde~smoking_status
+    m = lm(data_train[,p]~data_train[,"smoking_status"])  
+    # On récupère la p-valeur du modèle
+    pval_fisher = c(pval_fisher, anova(m)[1,5])  
+    # On récupère le r2 associé à ce modèle
+    r2 = c(r2, summary(m)$r.squared) 
   }
   names(pval_fisher)  = probes
   names(r2)           = probes
-  return(data.frame(pval_fisher=pval_fisher, r2=r2)) # On renvoie le dataframe  contenant les p-valeur et le r2 pour chaque modèle
+  return(data.frame(pval_fisher=pval_fisher, r2=r2)) 
 }
-if (!exists("msiscreening")) {msiscreening = memoise::memoise(siscreening)} # On mémoise la fonciton pour mettre le résultat en cache.
+# On mémoise la fonciton pour mettre le résultat en cache.
+if (!exists("msiscreening")) {msiscreening = memoise::memoise(siscreening)} 
 sis_res = msiscreening(data_train1) # Dataframe résutlat
 ```
 
 ```{r}
 # Graphe R2 et p-value
-plot(sis_res$r2, -log10(sis_res$pval),main="-log10(p-value) des modèles linéaire à une sonde en fonction du R2")
+plot(sis_res$r2, -log10(sis_res$pval),
+     main="-log10(p-value) des modèles linéaire à une sonde en fonction du R2",
+     xlab="R²",ylab="-log10(p-value)")
 ```
-On a une relation logarithme : quand la p-valye devient très petite (-log10(p_val) grand),
-# le R² augmente.
+On observe une relation logarithmique entre la p-valeur et le R² : quand la p-valeur devient très petite (-log10(p_val) grand), le R² augmente.
 
+On tri les sondes par ordre croissant de p-valeur.
 ```{r}
 # Tri des sondes en fonction de la p-value
 sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
@@ -85,29 +102,27 @@ head(sis_res[sis_probes,])
 ```
 
 # Méthodes étudiées
+Nous allons étudier trois méthodes différentes pour ce datachallenge : un arbre de décision construit à partir de modèles linéaire, un algorithme de random forest et un alorithme de XGBoost. Nous détaillons chacun de ces méthodes dans les parties suivantes.
 
 ## 1. Arbre de décision à partir de modèles linéaires
 ### Idée
-On va faire un permier modèle qui permettra de prédire si oui ou non une personne appartient à une des trois catégories. Puis après créer un autre modèle entrainé sur les individus des 2 autres status restant pour prédire si oui ou non un individu appartient à une des deux catégories. Au final, on combinerait les deux modèles en seul comme un arbre de décision. 
+L'idée de ce modèle est de construire tout d'abord un premier modèle permettant de séparer les individus en deux groupes selon un des trois statuts tabagiques puis de construire un second modèle entrainé uniquement sur les données des individus des deux autres statuts pour à nouveau séparer les individus restants dans deux groupe selon un des deux status tabagiques restants. Puis, finalement, combiner ces deux modèles pour n'en former qu'un seul : un arbre de décision.
 
-Par exemple : on a un premier modèle qui prédit si la personne fume actuellement ou non et on l'applique à nous données. Les personnes labélisées comme ne fumant pas actuellement sont ensuite passées dans le second modèle pour déterminer si elles sont d'anciens fumeurs. Les personnes restantes sont alors labélisées comme n'ayant jamais fumées.
+Voici un exemple :
+![This is an image](image_arbre_decision.jpg)
 
 ### Premier modèle
-On va d'abord constuire 3 modèles pour prédire pour les 3 statuts (never, former et current) avec hyperparamétrage
+Nous allons construire pour les trois statuts tabagiques (never, current et former) le premier modèle ayant pour but de prédire si un individu est du statut considéré ou non. Pour chacun de ces modèles, nous allons également réaliser une études des meilleurs hyperparamètres (nombres de sondes et seuil de décision) pour obtenir le meilleur modèle possible. Finalement, nous comparerons les trois modèles sur leur précision (proportion de prédiction correctes).
 
+Commençons avec le statut current, on utilise la variable binaire `current01`, pour construire le modèle.
 ```{r}
-# Code pour la création du modèle arbre de décision
-
-# CURRENT
-# Fonciton pour le modèle sis avec i sondes.
+# Fonciton pour créer un modèle linéaire avec les i meilleures sondes
 model_current_sis_i = function(data_train, i, screening_func=msiscreening){
-  print(paste0("model sis ", i))
-  sis_res = screening_func(data_train)  
-  sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
   formula = as.formula(paste0(c("current01~1", sis_probes[0:i]), collapse="+")) ; 
   m = glm(formula, data_train, family=binomial(link="logit"))
   return(m)
 }
+
 # On regarde le sur apprentissage sur les 50 sondes
 iap1 = c()
 iap2 = c()
@@ -118,11 +133,15 @@ for (i in 0:50) {
   iap1 = c(iap1, sum(ifelse(pred_train1>0.5, 1, 0) != data_train1$current01) / nrow(data_train1))
   iap2 = c(iap2, sum(ifelse(pred_train2>0.5, 1, 0) != data_train2$current01) / nrow(data_train2))
 }
-plot(iap1, col=4, pch=16, cex=1)
+plot(iap1, col=4, pch=16, cex=1, main="")
 points(iap2, col=2, pch=16, cex=1)
 legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=0.8)
 i=8
 abline(v=i, col=2)
+```
+
+
+```{r}
 # On a des sondes qui sont sûrement corrélées et qui apporte la même information : 
 # on va faire un step pour choisir les meilleurs sondes à parir du critère d'Aikaike (AIC).
 
