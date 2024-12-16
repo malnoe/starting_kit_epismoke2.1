@@ -85,7 +85,7 @@ program <- function(data_train, data_test) {
       return(predicted_classes)
     }
     
-    model_never_final <- stepforward_never(data_train_notcurrent, sis_probes, nb_sis_probes = 70,trace=0)
+    model_never_final <- stepforward_never(data_train_notcurrent, sis_probes, nb_sis_probes = 100,trace=0)
     
     # Mix
     predict_current_never<- function(data,step_model_current,seuil_current,step_model_never,seuil_never){
@@ -109,7 +109,7 @@ program <- function(data_train, data_test) {
       return(predictions)
     }
     
-    data_pred <- predict_current_never(data_test, model_current_final,0.575,model_never_final,0.425)
+    data_pred <- predict_current_never(data_test, model_current_final,0.575,model_never_final,0.725)
     
     ##
     ## YOUR CODE ENDS HERE

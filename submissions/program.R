@@ -3,7 +3,6 @@ function(data_train, data_test) {
     ##
     ## YOUR CODE BEGINS HERE
     ## 
-    print("C'est parti.")
     
     probes = colnames(data_train)[5:10004]
     
@@ -24,86 +23,82 @@ function(data_train, data_test) {
     sis_res = msiscreening(data_train) # Dataframe résutlat
     sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
     
-    # never
-    print("never")
-    model_never_sis_i = function(data_train, i, screening_func=msiscreening){
-      print(paste0("model sis ", i))
-      sis_res = screening_func(data_train)  
-      sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
-      formula = as.formula(paste0(c("never01~1", sis_probes[0:i]), collapse="+")) ; 
-      m = glm(formula, data_train, family=binomial(link="logit"))
-      return(m)
-    }
-    
-    stepforward_never = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
-      m_lo = glm(never01 ~ 1, data=data_train[,c("never01", sis_probes[1:nb_sis_probes])])
-      m_sup = glm(never01 ~ ., data=data_train[,c("never01", sis_probes[1:nb_sis_probes])])
-      m_fwd = step(m_lo, method="forward", scope=list(upper=m_sup,lower=m_lo), trace=trace, k=k)
-      return(m_fwd)
-    }
-    
-    predict_never <- function(data,step_model, seuil){
-      predicted_probs <- predict(step_model, newdata = data, type = "response")
-      predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
-      return(predicted_classes)
-    }
-    
-    model_never_final <- stepforward_never(data_train, sis_probes, nb_sis_probes = 190,trace=0)
-    
-    # current
-    print("current")
-    data_train_notnever <- data_train[data_train$never01!=1,]
-    
     model_current_sis_i = function(data_train, i, screening_func=msiscreening){
       print(paste0("model sis ", i))
-      sis_res = screening_func(data_train)
+      sis_res = screening_func(data_train)  
       sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
       formula = as.formula(paste0(c("current01~1", sis_probes[0:i]), collapse="+")) ; 
       m = glm(formula, data_train, family=binomial(link="logit"))
       return(m)
     }
     
+    # CURRENT
     stepforward_current = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
       m_lo = glm(current01 ~ 1, data=data_train[,c("current01", sis_probes[1:nb_sis_probes])])
       m_sup = glm(current01 ~ ., data=data_train[,c("current01", sis_probes[1:nb_sis_probes])])
       m_fwd = step(m_lo, method="forward", scope=list(upper=m_sup,lower=m_lo), trace=trace, k=k)
-      # print(m_fwd$call)
       return(m_fwd)
     }
     
-    predict_notnever_current <- function(data,step_model, seuil){
+    predict_current <- function(data,step_model, seuil){
       predicted_probs <- predict(step_model, newdata = data, type = "response")
       predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
       return(predicted_classes)
     }
     
-    model_current_final <- stepforward_current(data_train_notnever, sis_probes, nb_sis_probes = 70,trace=0)
+    model_current_final <- stepforward_current(data_train, sis_probes, nb_sis_probes = 190,trace=0)
+    
+    # former
+    data_train_notcurrent <- data_train[data_train$current01!=1,]
+    
+    model_former_sis_i = function(data_train, i, screening_func=msiscreening){
+      print(paste0("model sis ", i))
+      sis_res = screening_func(data_train)
+      sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
+      formula = as.formula(paste0(c("former01~1", sis_probes[0:i]), collapse="+")) ; 
+      m = glm(formula, data_train, family=binomial(link="logit"))
+      return(m)
+    }
+    
+    stepforward_former = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
+      m_lo = glm(former01 ~ 1, data=data_train[,c("former01", sis_probes[1:nb_sis_probes])])
+      m_sup = glm(former01 ~ ., data=data_train[,c("former01", sis_probes[1:nb_sis_probes])])
+      m_fwd = step(m_lo, method="forward", scope=list(upper=m_sup,lower=m_lo), trace=trace, k=k)
+      # print(m_fwd$call)
+      return(m_fwd)
+    }
+    
+    predict_notcurrent_former <- function(data,step_model, seuil){
+      predicted_probs <- predict(step_model, newdata = data, type = "response")
+      predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
+      return(predicted_classes)
+    }
+    
+    model_former_final <- stepforward_former(data_train_notcurrent, sis_probes, nb_sis_probes = 100,trace=0)
     
     # Mix
-    print("Mix")
-    predict_never_current<- function(data,step_model_never,seuil_never,step_model_current,seuil_current){
+    predict_current_former<- function(data,step_model_current,seuil_current,step_model_former,seuil_former){
       
       # Étape 1 : Initialisation du vecteur de prédictions
       n <- nrow(data)
       predictions <- rep(NA, times=n)
       
-      # Étape 2 : Prédictions pour "never"
-      is_never <- predict_never(data,step_model_never,seuil_never) == 1
-      predictions[is_never] <- "never"
+      # Étape 2 : Prédictions pour "current"
+      is_current <- predict_current(data,step_model_current,seuil_current) == 1
+      predictions[is_current] <- "current"
       
-      # Étape 3 : Prédictions pour "current" parmi les non-classés
+      # Étape 3 : Prédictions pour "former" parmi les non-classés
       remaining <- is.na(predictions)
-      is_current <- predict_notnever_current(data[remaining, ],step_model_current,seuil_current) == 1
-      predictions[which(remaining)[is_current]] <- "current"
+      is_former <- predict_notcurrent_former(data[remaining, ],step_model_former,seuil_former) == 1
+      predictions[which(remaining)[is_former]] <- "former"
       
-      # Étape 4 : Tout le reste est "current"
-      predictions[is.na(predictions)] <- "current"
+      # Étape 4 : Tout le reste est "never"
+      predictions[is.na(predictions)] <- "never"
       
       return(predictions)
     }
     
-    print("Maintenant on prédit")
-    data_pred <- predict_never_current(data_test, model_never_final,0.575,model_current_final,0.425)
+    data_pred <- predict_current_former(data_test, model_current_final,0.575,model_former_final,0.275)
     
     ##
     ## YOUR CODE ENDS HERE
