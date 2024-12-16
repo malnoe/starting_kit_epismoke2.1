@@ -133,18 +133,16 @@ for (i in 0:50) {
   iap1 = c(iap1, sum(ifelse(pred_train1>0.5, 1, 0) != data_train1$current01) / nrow(data_train1))
   iap2 = c(iap2, sum(ifelse(pred_train2>0.5, 1, 0) != data_train2$current01) / nrow(data_train2))
 }
-plot(iap1, col=4, pch=16, cex=1, main="")
+plot(iap1, col=4, pch=16, cex=1, main="Incorrect Answers Proportion en fonction du nombre de sondes sur les deux jeux de données",xlab="Nombre de sondes",ylab="Incorrect Answers Proportion",cex.main=0.8)
 points(iap2, col=2, pch=16, cex=1)
 legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=0.8)
 i=8
 abline(v=i, col=2)
 ```
 
+On voit sur la figure précédente qu'en prenant plus de 8 sondes l'erreur diminue sur le jeu de données `data_train1` mais qu'il augmente sur le jeu de données `data_train2` : il y a du sur-apprentissage. Certaines sondes sont corélées et n'apporte rien. Pour sélectionner les meilleures sondes, nous allons utiliser la fonction step qui sélectionne les sondes à partir du critère d'Aikaike (AIC)
 
 ```{r}
-# On a des sondes qui sont sûrement corrélées et qui apporte la même information : 
-# on va faire un step pour choisir les meilleurs sondes à parir du critère d'Aikaike (AIC).
-
 # Fonction de création de modèles step pour CURRENT
 stepforward_current = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
   m_lo = glm(current01 ~ 1, data=data_train[,c("current01", sis_probes[1:nb_sis_probes])])
@@ -152,8 +150,11 @@ stepforward_current = function(data_train, sis_probes, nb_sis_probes=200, trace=
   m_fwd = step(m_lo, method="forward", scope=list(upper=m_sup,lower=m_lo), trace=trace, k=k)
   return(m_fwd)
 }
+```
 
-# Modèle step obtenu à partir des 90 meilleurs sondes.
+Testons les résultats sur `data_train2` avec le modèle step obtenu à partir des 90 premières sondes.
+```{r}
+# Exemple Modèle step obtenu à partir des 90 meilleurs sondes.
 step_model_current_90 = stepforward_current(data_train1, sis_probes, nb_sis_probes = 90,trace=0)
 
 # Test de l'accuracy sur le step_model_current_90
@@ -162,31 +163,37 @@ predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0) # On pose le seuil à 0
 confusion_matrix <- table(Predicted = predicted_classes, Actual = data_train2$current01)
 print(confusion_matrix)
 accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-print(paste("Accuracy:", accuracy))
-# Accuracy : 0.80
+print(paste("Précision:", accuracy))
+```
+Les résultats sont plutôt bons, on a une précision de 80,9% mais ce résultat est sans doute améliorable. En effet, on peut jouer sur deux hyperparamètres : le nombre de sondes utilisées pour former le modèle avec step et le seuil de décision (le modèle prédit une valeur nuémrique, on avait choisit arbitrairement que si la valeur était supérieur à 0.5 alors l'individu appartenait à la classe current).
 
-# Est-ce qu'on peut obtenier un meilleur modèle ? 
-# On va jouer sur les hyper-paramètres seuil et nombre de sondes 
-# pour la construction du modèle
+Pour faire cela, on va tout d'abord définir une fonction générale de prédiction qui prend en argument des données dont on veut prédire la classe, un modèle (pour faire varier le nombre de sonde) et un seuil.
 
+```{r}
 # Fonction générale de prédiction à partir d'un modèle step + seuil de décision
 predict_current <- function(data,step_model, seuil){
   predicted_probs <- predict(step_model, newdata = data, type = "response")
   predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
   return(predicted_classes)
 }
+```
 
-# On crée des modèles pour l'hyperparamétrage.
+En suite, on crée les modèles pour les différents nombres de sondes. On choisir de prendre 50 à 200 sondes par pas de 10. Cela fait 16 possibilités.
+```{r}
+
+# Modèles pour différents nombres de sondes 50 à 200 avec un pas de 10.
 create_modeles_current <- function(from = 50, to = 200, by = 10) {
   res <- list()
   for (i in seq(from = from, to = to, by = by)) {
-    print(paste0(i, "/", to))
     res[[length(res) + 1]] <- stepforward_current(data_train1, sis_probes, nb_sis_probes = i, trace = 0)
   }
   return(res)
 }
 modeles_current <- create_modeles_current()
+```
 
+On crée une fonction pour automatiser l'hyperparamétrage, elle va tester toutes les combinaison de modèles et de seuil et renvoyer la meilleur précision obtenue sur `data_train2` et les modalités associées.
+```{r}
 # Fonction pour l'hyper-paramétrage de CURRENT
 hyperparametrage_current<- function(data, list_modeles_current, list_seuil_current){
   best_accuracy <- 0
@@ -202,7 +209,7 @@ hyperparametrage_current<- function(data, list_modeles_current, list_seuil_curre
     num_model_current <- num_model_current +1
     for(seuil_current in list_seuil_current){
       i <- i+1
-      if(i%%10 == 0){
+      if(i%%100 == 0){
         print(paste0(i,"/",nb))
       }
       confusion_matrix <- table(Predicted = predict_current(data,step_model_current,seuil_current), Actual = data$current01)
@@ -217,23 +224,24 @@ hyperparametrage_current<- function(data, list_modeles_current, list_seuil_curre
   return(c(best_accuracy,best_num_model_current,best_seuil_current))
 }
 
-hyperparametrage_current(data_train2,modeles_current,list(0.4,0.425,0.45,0.475,0.5,0.525,0.55,0.575,0.6))
-# Res :
-# Accuracy : 0.82857
-# Modèle n*15 -> 190 sondes
-# Seuil : 0.575
+liste_seuils <- seq(from=0, to=1, by= 0.025)
+hyperparametrage_current(data_train2,modeles_current,liste_seuils)
 ```
+Les meilleurs hyperparamètres sont donc 190 sondes avec un seuil de 0.575 qui donne une précision de 0.829.
 
+On réitère le même processus avec le statut never.
+
+Modèles sis avec les i meilleures sondes
 ```{r}
 # NEVER
 model_never_sis_i = function(data_train, i, screening_func=msiscreening){
-  print(paste0("model sis ", i))
   sis_res = screening_func(data_train)  
   sis_probes = rownames(sis_res)[order(sis_res$pval_fisher)]
   formula = as.formula(paste0(c("never01~1", sis_probes[0:i]), collapse="+")) ; 
   m = glm(formula, data_train, family=binomial(link="logit"))
   return(m)
 }
+
 # On regarde le sur apprentissage sur les 50 sondes
 iap1 = c()
 iap2 = c()
@@ -244,13 +252,16 @@ for (i in 0:50) {
   iap1 = c(iap1, sum(ifelse(pred_train1>0.5, 1, 0) != data_train1$never01) / nrow(data_train1))
   iap2 = c(iap2, sum(ifelse(pred_train2>0.5, 1, 0) != data_train2$never01) / nrow(data_train2))
 }
-plot(iap1, col=4, pch=16, cex=1)
-points(iap2, col=2, pch=16, cex=1)
+plot(iap2, col=2, pch=16, cex=1,ylim=c(0.10,0.40),main="Incorrect Answers Proportion en fonction du nombre de sondes sur les deux jeux de données",xlab="Nombre de sondes",ylab="Incorrect Answers Proportion",cex.main=0.8)
+points(iap1, col=4, pch=16, cex=1)
 legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=0.8)
-i=8
+i=10
 abline(v=i, col=2)
+```
+Ici aussi, on voit qu'en prennant trop de sondes la proportion d'erreur augment sur les données de `data_train2`. A nouveau, on va utiliser la fonciton Step pour sélectionner les sondes.
 
-# On effectue un step 
+Fonction step :
+```{r}
 stepforward_never = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
   m_lo = glm(never01 ~ 1, data=data_train[,c("never01", sis_probes[1:nb_sis_probes])])
   m_sup = glm(never01 ~ ., data=data_train[,c("never01", sis_probes[1:nb_sis_probes])])
@@ -258,7 +269,10 @@ stepforward_never = function(data_train, sis_probes, nb_sis_probes=200, trace=0,
   # print(m_fwd$call)
   return(m_fwd)
 }
+```
 
+Exemple avec 90 sondes et un seuil à 0.55 :
+```{r}
 # Exemple avec 90 sondes
 step_model_never_90 = stepforward_never(data_train1, sis_probes, nb_sis_probes = 90,trace=0)
 
@@ -268,45 +282,46 @@ predicted_classes <- ifelse(predicted_probs > 0.55, 1, 0)
 confusion_matrix <- table(Predicted = predicted_classes, Actual = data_train2$never01)
 print(confusion_matrix)
 accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-print(paste("Accuracy:", accuracy))
-# Accuracy : 0.69
+print(paste("Précision:", accuracy))
+```
+En prennant 90 sondes, on obtient une précision nettement plus faible pour never que pour current. Essayons de nouveau de trouver de meilleurs hyperparamètres (seuil et nombre de sondes).
 
+On commence par coder la fonction générale de prédiciton qui prend en entrée les données dont il faut prédire la classe, le modèle à utiliser et le seuil.
+```{r}
 # Fonction générale
 predict_never <- function(data,step_model, seuil){
   predicted_probs <- predict(step_model, newdata = data, type = "response")
   predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
   return(predicted_classes)
 }
+```
 
+Modèles pour différents nombres de sondes, on va pendre 50 à 200 sondes avec un pas de 10.
+```{r}
 # On crée des modèles pour l'hyperparamétrage.
 create_modeles_never <- function(from = 50, to = 200, by = 10) {
   res <- list()
   for (i in seq(from = from, to = to, by = by)) {
-    print(paste0(i, "/", to))
     res[[length(res) + 1]] <- stepforward_never(data_train1, sis_probes, nb_sis_probes = i, trace = 0)
   }
   return(res)
 }
 modeles_never <- create_modeles_never()
+```
 
+```{r}
 # Fonction pour l'hyper-paramétrage de never
 hyperparametrage_never<- function(data, list_modeles_never, list_seuil_never){
   best_accuracy <- 0
   best_seuil_never <- 0
   best_num_model_never <- 1
   
-  
   nb <- length(list_modeles_never)*length(list_seuil_never)
-  i <- 0
   
   num_model_never <- 0
   for(step_model_never in list_modeles_never){
     num_model_never <- num_model_never +1
     for(seuil_never in list_seuil_never){
-      i <- i+1
-      if(i%%10 == 0){
-        print(paste0(i,"/",nb))
-      }
       confusion_matrix <- table(Predicted = predict_never(data,step_model_never,seuil_never), Actual = data$never01)
       accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
       if(accuracy > best_accuracy){
@@ -319,17 +334,13 @@ hyperparametrage_never<- function(data, list_modeles_never, list_seuil_never){
   return(c(best_accuracy,best_num_model_never,best_seuil_never))
 }
 
-hyperparametrage_never(data_train2,modeles_never,list(0.4,0.425,0.45,0.475,0.5,0.525,0.55,0.575,0.6))
-
-# Res
-# Accuracy : 0.724
-# Modèles n*3 -> 70 sondes
-# Seuil = 0.425
-
+liste_seuils <- seq(from=0, to=1, by= 0.025)
+hyperparametrage_never(data_train2,modeles_never,liste_seuils)
 ```
+Pour never, les meilleurs hyperparamètres sont donc 70 sondes avec un seuil de 0.425 qui donne une précision de 0.724 : c'est moins bon que current.
 
+Enfin, on essaye également avec le statut former.
 ```{r}
-
 # FORMER
 model_former_sis_i = function(data_train, i, screening_func=msiscreening){
   print(paste0("model sis ", i))
@@ -355,6 +366,10 @@ legend("bottomright", c("iap1", "iap2"), col=c(4,2), pch=16, cex=0.8)
 i=8
 abline(v=i, col=2)
 
+```
+
+```{r}
+
 # On effectue un step 
 stepforward_former = function(data_train, sis_probes, nb_sis_probes=200, trace=0, k=2) {
   m_lo = glm(former01 ~ 1, data=data_train[,c("former01", sis_probes[1:nb_sis_probes])])
@@ -363,24 +378,30 @@ stepforward_former = function(data_train, sis_probes, nb_sis_probes=200, trace=0
   # print(m_fwd$call)
   return(m_fwd)
 }
+```
 
+```{r}
 step_model_former_90 = stepforward_former(data_train1, sis_probes, nb_sis_probes = 90,trace=0)
+
 # On regarde les résultats sur data_train2
 predicted_probs <- predict(step_model_former_90, newdata = data_train2, type = "response")
 predicted_classes <- ifelse(predicted_probs > 0.55, 1, 0)
 confusion_matrix <- table(Predicted = predicted_classes, Actual = data_train2$former01)
 print(confusion_matrix)
 accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-print(paste("Accuracy:", accuracy))
+print(paste("Précision:", accuracy))
+```
 
+```{r}
 # Fonction générale
 predict_former <- function(data,step_model, seuil){
   predicted_probs <- predict(step_model, newdata = data, type = "response")
   predicted_classes <- ifelse(predicted_probs > seuil, 1, 0)
   return(predicted_classes)
 }
+```
 
-
+```{r}
 # On crée des modèles pour l'hyperparamétrage.
 create_modeles_former <- function(from = 50, to = 200, by = 10) {
   res <- list()
@@ -391,7 +412,9 @@ create_modeles_former <- function(from = 50, to = 200, by = 10) {
   return(res)
 }
 modeles_former <- create_modeles_former()
+```
 
+```{r}
 # Fonction pour l'hyper-paramétrage de former
 hyperparametrage_former<- function(data, list_modeles_former, list_seuil_former){
   best_accuracy <- 0
