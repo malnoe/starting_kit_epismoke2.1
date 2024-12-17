@@ -5,12 +5,24 @@ date: "`r Sys.Date()`"
 output:
   pdf_document:
     toc: true
+    number_sections: TRUE
+geometry: margin = 1.8 cm
 ---
 
+Code de mise en forme des titres :
+  - #     =>   ***\textcolor{blue}{\underline{titre}}***
+  - ##    =>   ***sous-titre***
+  - ###   =>   **sous-sous-titre**
 
-```{r, echo = FALSE, warning = FALSE}
-# Librairies toutes ici comme ça on se perd pas
+
+
+!! Attention dans les blocs de code aux lignes trop longues !!
+
+
+```{r, echo = FALSE, warning = FALSE, error = FALSE}
+# Mettre toutes les librairies ici comme ça on se perd pas (on mettra le bloc au début du rapport après)
 library(knitr)
+library(Matrix)
 library(glmnet)
 library(randomForest)
 ```
@@ -41,14 +53,14 @@ Les deux jeux de données `data_train` et `data_test` sont composés de respecti
 \newpage
 
 
-# ***\underline{Prétraitement}***
+# ***\textcolor{blue}{\underline{Prétraitement}}***
 
 Commençons par un pré-traitement qui sera commun aux trois modèles.
 
 Récupérons d'abord le noms des colonnes correspondants aux sondes (variables explicatives).
 ```{r}
 # Nom des sondes
-probes <- colnames(data_train)[5:10004] 
+probes <- colnames(data_train)[5:length(data_train)] 
 probes[1:6]
 ```
 
@@ -140,12 +152,16 @@ head(sis_res[sis_probes, ])
 \newpage
 
 
-# ***\underline{Méthodes étudiées}***
+
+\newpage
+
+
+# ***\textcolor{blue}{\underline{Méthodes étudiées}}***
 
 Nous allons étudier trois méthodes différentes pour ce data challenge : un arbre de décision construit à partir de modèles linéaires, un algorithme Elastic Net et un algorithme XGBoost. Nous détaillons chacune de ces méthodes dans les parties suivantes.
 
-## *Arbre de décision à partir de modèles linéaires*
-### **Idée**
+## ***Arbre de décision à partir de modèles linéaires***
+### **Idée du modèle**
 L'idée de ce modèle se construit en trois étapes :
 - d'abord, un premier modèle permettant de séparer les individus en deux groupes selon un des trois statuts tabagiques ;
 
@@ -153,7 +169,7 @@ L'idée de ce modèle se construit en trois étapes :
 
 - finalement, combiner ces deux modèles pour n'en former qu'un seul : un arbre de décision.
 
-Voici un exemple :
+Voici un exemple : \ 
 ![This is an image](image_arbre_decision.jpg)
 
 ### **Premier modèle**
@@ -691,13 +707,298 @@ head(predicted, 10)
 ```
 
 
-## *Elastic Net*
+## ***Elastic Net***
+Nous voulions initialement faire un algorithme de Random Forest en deuxième modèle mais, après quelques tests effectués, nous nous sommes rendu compte qu'il n'était pas performant. Nous avons donc décidé d'explorer le modèle Elastic Net.
 
-## *XGBoost*
+### **Idée du modèle**
+Elastic Net est un modèle réalisant un ajustement entre deux pénalités tirés d'autres modèles :
 
-# ***\underline{Résultats}***
+- la pénalité L1 du modèle LASSO. Ce modèle vise à minimiser la somme de l'erreur quadratique moyenne et d'une pénalité sur la valeur absolue des coefficients $\beta$ du modèle. Cette pénalité force certains coefficients à 0, faisant donc une sélection dans nos variables explicatives.
 
-## *Arbre de décision à partir de modèles linéaires*
+- la pénalité L2 du modèle Ridge. Ce modèle vise à minimiser la somme de l'erreur quadratique moyenne et d'une pénalité sur la somme des carrés des coefficients $\beta$ du modèle. Ceci permet de réduire les coefficients sans pour autant les annuler, et donc de mieux gérer des variables fortement corrélées.
+
+Elastic Net réalise un ajustement de ces pénalités via un hyperparamètre $\alpha$ : $P_{EN} = \alpha L1 + \frac{1 - \alpha}{2} L2$. 
+
+Ainsi, lorsque $\alpha = 0$, nous avons simplement un modèle Ridge, et lorsque $\alpha = 1$, nous avons un modèle LASSO. \
+Comme pour les deux autres modèles, Elastic Net possède aussi un hyperparamètre de régularisation $\lambda$ qui contrôle l'intensité de la pénalité : plus il est grand, plus la pénalité est forte, et donc plus les coefficients sont réduis. \
+Finalement, ce modèle vise à minimiser la somme de l'erreur quadratique moyenne (MSE) et de la pénalité ajustée et régularisée, c'est-à-dire réduire $MSE + \lambda\ \cdot P_{EN}$. 
+
+Elastic Net semble donc assez bien adapté aux données du data challenge puisque nous voulons à la fois réduire le nombre de sondes *et* gérer la corrélation de celles sélectionnées. Ce modèle est aussi bien construit afin d'éviter le risque sur-apprentissage, risque assez élevé avec des jeu de données comme ici où le nombres d'individus est très inférieur au nombre de variables.
+
+
+
+### **Premier modèle**
+Avant de partir dans de l'hyperparamétrage, commençons d'abord par nous familiariser avec le modèle sur le jeu de données d'entraînement.
+
+Il faut d'abord séparer nos variables prédictives de notre variable à expliquée. De plus, Elastic Net ne fonctionne qu'avec des matrices, donc il faut au passage convertir les variables explicatives en matrices :
+```{r}
+    # Matrices des variables prédictives
+X_train <- as.matrix(data_train1[, 5:ncol(data_train1)])
+X_test <- as.matrix(data_train2[, 5:ncol(data_train2)])
+
+    # Variable cible
+Y <- data_train1$smoking_status
+```
+
+Notre variable cible possède plusieurs labels ; il faudra le spécifier dans les arguments du modèle :\
+`family = "multinomial"`.
+
+Afin d'obtenir automatiquement le meilleur $\lambda$ pour nos données, nous utilisons la fonction `cv.glmnet` du package `glmnet`. Celle-ci permet de faire une cross-validation de modèles pour différentes valeurs de $\lambda$ et possède dans ses arguments de sorties deux valeurs intéressantes pour cet hyperparamètre : `lambda.min` et `lambda.1se`. La première indique la valeur de $\lambda$ pour laquelle l'erreur commise est la plus faible et la deuxième correspond au $\lambda$ du modèle commettant la plus grande erreur "acceptable" (dans une plage de 1 écart-type autour de l'erreur minimale). Le premier modèle permet donc de mieux réduire l'erreur commise mais le deuxième est plus robuste lors de généralisation.
+
+L'argument `nfolds` permet de renseigner le nombre de sous-échantillons créé pour effectuer la cross-validation.
+
+Fixons enfin $\alpha = 0,5$ pour avoir le modèle médian entre Ridge et LASSO. Ainsi, notre modèle s'écrit comme suit :
+```{r}
+elast_model <- cv.glmnet(x = X_train, y = Y, family = "multinomial", 
+                         alpha = 0.5, nfolds = 20)
+```
+
+Nous pouvons maintenant tenter de prédire les valeur de `smoking_status` dans `data_train2` :
+```{r}
+predictions_elast <- predict(elast_model, newx = X_test, 
+                             s = elast_model$lambda.min, type = "class")
+accuracy_elast <- sum(predictions_elast == data_train2$smoking_status) / nrow(data_train2)
+```
+Le but étant de minimiser l'erreur commise, nous utiliserons ici la valeur de `lambda.min` pour l'hyperparamètre $\lambda$. \
+L'argument `type = "class"` dans la fonction `predict()` permet d'obtenir directement les classes prédites :
+```{r}
+kable(head(predictions_elast), align = "r")
+```
+
+Ainsi, ce premier modèle obtient un taux d'erreur de `r round(1 - accuracy_elast, 3)`, ce qui est déjà plutôt bon.
+
+
+
+### **Paramétrage du modèle**
+Maintenant que nous connaissons un peu mieux le modèle, nous pouvons essayer de le paramétrer afin de réduire son taux d'erreur. Étant donné que la sélection du $\lambda$ est déjà réalisé automatiquement, nous pouvons nous concentrer sur d'autre paramètres : 
+
+- la fonction `cv.glmnet()` possède un argument `weights` permettant d'affecter un poids aux classes à prédire afin d'éviter qu'il y en ait une qui tire les autres si les données sont déséquilibrées. 
+
+- le nombre `nfolds` peut aussi être intéressant à calibrer.
+
+- la valeur d'ajustement $\alpha$.
+
+- le nombre de sondes à utiliser dans la matrice de prédiction.
+
+Commençons donc d'abord par trier les sondes. La méthode de tri utiliser dans le modèles SIS ne tenant pas compte de la corrélation entre les sondes, nous allons ici les classer différemment grâce à une Random Forest. En effet, ce modèle possède un argument `importance` permettant de trier les variables prédictives selon deux valeurs : `MeanDecreaseAccuracy` ou `MeanDecreaseGini`. Ici, nous utiliserons le premier pour trier les sondes.
+
+Construisons donc un modèle de Random Forest basique à 100 arbres et avec toutes les sondes en variables explicatives :
+```{r}
+rf_model <- randomForest(smoking_status ~ .,
+                         data = data_train1[, c("smoking_status", probes)], 
+                         ntree = 100, importance = TRUE)
+```
+
+Nous récupérons ensuite les sondes trier selon leur `MeanDecreaseAccuracy` afin d'avoir les plus importantes en premières :
+```{r}
+    # Importance des variables
+imp_sondes <- importance(rf_model)
+sondes_tri <- names(sort(imp_sondes[, "MeanDecreaseAccuracy"], decreasing = TRUE))
+```
+Ainsi, le vecteur `sondes_tri` possède le noms des sondes trier par leur importance de prédiction dans un modèle de Random Forest. Les premières sondes sont donc les plus utiles à la prédiction.
+
+L'avantage de cette méthode sur celle du modèle SIS est la manière dont elle traite la corrélation des sondes. Ici, la corrélation entre en jeu lors du calcul de l'importance de la sonde, permettant aux premières sondes d'être le moins corrélées possible, ce qui n'est pas le cas avec l'autre méthode.
+
+Reste maintenant à savoir quel nombre de sondes sera optimale pour le modèle, mais nous y reviendront un peu plus tard. Avant cela, intéressons nous au poids des classes de `smoking_status`. Bien que le jeu de données présente ici des classes assez équilibrées, il vaut mieux les pondérées au cas où, surtout que le coût computationnel de cette opération n'est pas très important :
+```{r}
+    # Pondération des données (pour éviter qu'une classe ne tire les autres)
+poids <- table(Y)
+poids <- 1 / poids[as.character(Y)]      
+# poids inverse à la fréquence pour l'équilibrage
+
+poids <- poids / sum(poids)              
+# pour avoir une somme égale à 1
+```
+
+Comme énoncé plus haut, nous pourrions aussi chercher à calibrer l'argument `nfolds`, mais nos données font qu'il n'est pas spécialement utile de le faire. Nous le fixons donc à une valeur arbitraire de 10 (valeur par défaut de la fonction) ; il n'est ni trop petit, pour ne pas perdre de fiabilité sur l'erreur, ni trop grand, pour éviter le sur-apprentissage et l'augmentation du temps de calcul.
+
+Nous pouvons donc maintenant calibrer nos deux paramètres restants : $\alpha$ et le nombre de sondes. Pour cela, nous construisons deux vecteurs, un pour les valeurs de $\alpha$ à tester et un pour les valeurs du nombre de sondes, et nous construisons deux boucles imbriquées qui vont parcourir ces vecteurs et retourner le taux de réussite de chaque modèle :
+
+
+```{r}
+    # Vecteurs de valeurs pour alpha et le nombre de sondes
+alpha <- seq(from = 0, to = 1, by = 0.1)             
+# alpha est compris entre 0 et 1 par définition
+
+nb_sondes <- seq(from = 500, to = 1000, by = 100)    
+# Première recherches avec une réduction importante de sondes
+
+
+    # Vecteurs vide pour venir y stocker nos résultats
+alpha_top <- c()
+nb_sondes_opt <- c()
+accuracy_int <- c()
+accuracy_ext <- c()
+
+
+for (i in 1:length(nb_sondes)) {
+  X_train_n <- as.matrix(data_train1[, sondes_tri[1:nb_sondes[i]]])
+  X_test_n <- as.matrix(data_train2[, sondes_tri[1:nb_sondes[i]]])
+  
+  for (j in 1:length(alpha)) {
+    elast_model <- cv.glmnet(x = X_train_n, y = Y, family = "multinomial", 
+                             weights = poids, alpha = alpha[j], nfolds = 10)
+    predictions_elast <- predict(elast_model, newx = X_test_n, 
+                                 s = elast_model$lambda.min, type = "class")
+    accuracy_int[j] <- 
+      sum(predictions_elast == data_train2$smoking_status) / nrow(data_train2)    
+  }
+  
+  rapport_alpha <- data.frame(Alpha = alpha, Precision = accuracy_int)
+  alpha_top[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Alpha"]
+  accuracy_ext[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Precision"]
+  # print(paste(i, "croisements trouvés sur", length(nb_sondes)))
+}
+```
+
+La boucle agit ainsi : 
+
+- On sélectionne un nombre de sondes et on construit nos matrices de prédictions avec.
+
+- On parcours les valeurs possible de $\alpha$, on construit le modèle Elastic Net associé à chacune et on stock la précision des `r length(alpha)` modèles dans `accuracy_int`.
+
+- On stock ensuite dans `alpha_top` la valeur de $\alpha$ pour laquelle la précision est la meilleure. On stock aussi cette dite prédiction dans `accuracy_ext`.
+
+- On recommence jusqu'à avoir parcouru toutes les valeurs voulues pour le nombre de sondes. À chaque fois que la valeur `nb_sondes` change, le vecteur `accuracy_int` est entièrement modifié. Au contraire, les vecteurs `alpha_top` et `accuracy_ext` prennent juste une valeur supplémentaire à chaque itération.
+
+On peut ensuite construire un tableau avec nos résultats :
+```{r}
+rapport <- data.frame(nb_sondes, alpha_top, round(accuracy_ext, 3))
+colnames(rapport) <- c("Nombre de sondes", "Meilleur alpha", "Précision")
+kable(rapport, align = "r")
+```
+
+Ses résultats ne sont pas très convaincant, surtout si nous les comparons au résultat obtenu sur le premier modèle. \
+Nous pouvons tout de même noté une tendance dans le tableau : plus le nombres de sondes augmente, plus la précision est bonne. Essayons donc différents modèles jusqu'au nombre maximal de sondes (10 000) :
+```{r}
+    # Vecteurs de valeurs pour alpha et le nombre de sondes
+alpha <- seq(from = 0, to = 1, by = 0.1)          
+nb_sondes <- seq(from = 500, to = 10000, by = 500)
+
+
+    # Vecteurs vide pour venir y stocker nos résultats
+alpha_top <- c()
+nb_sondes_opt <- c()
+accuracy_int <- c()
+accuracy_ext <- c()
+
+
+for (i in 1:length(nb_sondes)) {
+  X_train_n <- as.matrix(data_train1[, sondes_tri[1:nb_sondes[i]]])
+  X_test_n <- as.matrix(data_train2[, sondes_tri[1:nb_sondes[i]]])
+  
+  for (j in 1:length(alpha)) {
+    elast_model <- cv.glmnet(x = X_train_n, y = Y, family = "multinomial", 
+                             weights = poids, alpha = alpha[j], nfolds = 10)
+    predictions_elast <- predict(elast_model, newx = X_test_n, 
+                                 s = elast_model$lambda.min, type = "class")
+    accuracy_int[j] <- 
+      sum(predictions_elast == data_train2$smoking_status) / nrow(data_train2)    
+  }
+  
+  rapport_alpha <- data.frame(Alpha = alpha, Precision = accuracy_int)
+  alpha_top[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Alpha"]
+  accuracy_ext[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Precision"]
+  # print(paste(i, "croisements trouvés sur", length(nb_sondes)))
+}
+
+rapport <- data.frame(nb_sondes, alpha_top, round(accuracy_ext, 3))
+colnames(rapport) <- c("Nombre de sondes", "Meilleur alpha", "Précision")
+kable(rapport, align = "r")
+```
+
+Au vu de ces résultats, il semble que le nombre optimal de sondes soit autour des 4 000. En effet, la précision y est aussi bonne, voir meilleure, qu'avec toutes les sondes. Il serait donc judicieux de choisir 4 000 pour une précision optimal avec un temps de calcul réduit et un sur-apprentissage limité au maximum. 
+
+Le choix de $alpha$ semble quand à lui évident, une valeur de 0,1 semble la meilleure.
+
+Lançons donc une dernière fois un calibrage afin d'obtenir un peu plus de précision autour de ces valeurs clés :
+```{r}
+    # Vecteurs de valeurs pour alpha et le nombre de sondes
+alpha <- seq(from = 0, to = 0.3, by = 0.02)          
+nb_sondes <- seq(from = 3500, to = 4500, by = 100)
+
+
+    # Vecteurs vide pour venir y stocker nos résultats
+alpha_top <- c()
+nb_sondes_opt <- c()
+accuracy_int <- c()
+accuracy_ext <- c()
+
+
+for (i in 1:length(nb_sondes)) {
+  X_train_n <- as.matrix(data_train1[, sondes_tri[1:nb_sondes[i]]])
+  X_test_n <- as.matrix(data_train2[, sondes_tri[1:nb_sondes[i]]])
+  
+  for (j in 1:length(alpha)) {
+    elast_model <- cv.glmnet(x = X_train_n, y = Y, family = "multinomial", 
+                             weights = poids, alpha = alpha[j], nfolds = 10)
+    predictions_elast <- predict(elast_model, newx = X_test_n, 
+                                 s = elast_model$lambda.min, type = "class")
+    accuracy_int[j] <- 
+      sum(predictions_elast == data_train2$smoking_status) / nrow(data_train2)    
+  }
+  
+  rapport_alpha <- data.frame(Alpha = alpha, Precision = accuracy_int)
+  alpha_top[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Alpha"]
+  accuracy_ext[i] <- rapport_alpha[which.max(rapport_alpha$Precision), "Precision"]
+  # print(paste(i, "croisements trouvés sur", length(nb_sondes)))
+}
+
+rapport <- data.frame(nb_sondes, alpha_top, round(accuracy_ext, 3))
+colnames(rapport) <- c("Nombre de sondes", "Meilleur alpha", "Précision")
+kable(rapport, align = "r")
+```
+
+Ces derniers résultats permettent de conclure que les meilleures valeurs pour le nombre de sondes et $\alpha$ sont : \
+`r rapport[which.max(rapport$Précision), c("Sondes", "Alpha")]`
+
+
+
+### **Modèle final**
+Finalement, le meilleur modèle adapté aux données de ce data challenge avec Elastic Net est donc le suivant : 
+```{r}
+# Sondes (variables explicatives)
+sondes <- colnames(data_train)[5:length(data_train)]
+
+# Modèle de Random Forest pour estimer l'importance des sondes dans la prédiction
+rf_model <- randomForest(smoking_status ~ ., 
+                         data = data_train[, c("smoking_status", sondes)], 
+                         ntree = 100, importance = TRUE)
+
+# Importance des sondes
+imp_sondes <- importance(rf_model)
+sondes_4300 <- names(sort(imp_sondes[, "MeanDecreaseAccuracy"], 
+                          decreasing = TRUE)[1:4300]) # 4300 meilleures sondes
+
+# Matrice de prédiction
+X_train_rf <- as.matrix(data_train[, sondes_4300])
+
+# Variable cible
+Y <- data_train$smoking_status
+
+# Pondération des données (pour éviter qu'une classe ne tire les autres)
+poids <- table(Y)
+poids <- 1 / poids[as.character(Y)]      # poids inverse à la fréquence
+poids <- poids / sum(poids)              # pour avoir une somme égale à 1
+
+# Modèle Elastic Net
+elast_model <- cv.glmnet(x = X_train_rf, y = Y, family = "multinomial", 
+                         weights = poids, alpha = 0.02, nfolds = 10)
+```
+
+
+
+## ***XGBoost***
+
+
+\newpage
+
+
+
+
+# ***\textcolor{blue}{\underline{Résultats}}***
+
+## ***Arbre de décision à partir de modèles linéaires***
 ### **Résultats sur data_train2**
 ```{r}
 predicted <- predict_current_never(data_train2, model_current_final, 0.575, model_never_final, 0.725)
@@ -710,17 +1011,107 @@ print(paste("Précision :", accuracy))
 ### **Résultats sur data_test**
 La soumission correspondante sur Codabench est la numéro 493 du 16 décembre 2024 publiée par l'utilisateur malnoe.  Le résultat obtenu est de 0.475.
 
-## *Random forest*
-### ***Résultats sur data_train2***
-### ***Résultats sur data_test***
+## ***Elastic Net***
+### **Résultats sur data_train2**
+```{r}
+    # Modèle de Random Forest pour estimer l'importance des sondes
+rf_model <- randomForest(smoking_status ~ ., 
+                         data = data_train1[, c("smoking_status", probes)],
+                         ntree = 100, importance = TRUE)
+  
+    # Importance des sondes
+imp_sondes <- importance(rf_model)
+sondes_4300 <- names(sort(imp_sondes[, "MeanDecreaseAccuracy"], 
+                          decreasing = TRUE)[1:4300])
+# 4300 meilleures sondes
+  
+    # Variables prédictives
+X_train_rf <- as.matrix(data_train1[, sondes_4300])
+X_test_rf <- as.matrix(data_train2[, sondes_4300])
+  
+    # Variable cible
+Y <- data_train1$smoking_status
+  
+    # Pondération des données (pour éviter qu'une classe ne tire les autres)
+poids <- table(Y)
+poids <- 1 / poids[as.character(Y)]
+poids <- poids / sum(poids)
+  
+    # Modèle Elastic Net
+elast_model <- cv.glmnet(x = X_train_rf, y = Y, family = "multinomial", 
+                         weights = poids, alpha = 0.02, nfolds = 10)
+
+    # Prédiction
+data_pred <- predict(elast_model, newx = X_test_rf, 
+                     s = elast_model$lambda.min, type = "class")
+
+    # Taux de précision
+accuracy <- sum(data_pred == data_train2$smoking_status) / nrow(data_train2)
+```
+Le taux d'erreur avec le modèle final d'Elastic Net est `r 1 - accuracy`.
+
+
+
+### **Résultats sur data_test**
+La soumission correspondante sur Codabench est la numéro 553 du 17 décembre 2024 publiée par l'utilisateur mazetma. Le résultat obtenu est de 0,295. Il a été obtenu avec le programme suivant :
+```{r}
+program <- function(data_train, data_test) {
+  library(glmnet)
+  library(randomForest)
+  
+  # Sondes (variables explicatives)
+  sondes <- colnames(data_train)[5:length(data_train)]
+  
+  # Modèle de Random Forest pour estimer l'importance des sondes dans la prédiction
+  rf_model <- randomForest(smoking_status ~ ., 
+                           data = data_train[, c("smoking_status", sondes)], 
+                           ntree = 100, importance = TRUE)
+  
+  # Importance des sondes
+  imp_sondes <- importance(rf_model)
+  sondes_4300 <- names(sort(imp_sondes[, "MeanDecreaseAccuracy"], 
+                            decreasing = TRUE)[1:4300]) # 4300 meilleures sondes
+  
+  # Variables prédictives
+  X_train_rf <- as.matrix(data_train[, sondes_4300])
+  X_test_rf <- as.matrix(data_test[, sondes_4300])
+  
+  # Variable cible
+  Y <- data_train$smoking_status
+  
+  # Pondération des données (pour éviter qu'une classe ne tire les autres)
+  poids <- table(Y)
+  poids <- 1 / poids[as.character(Y)]      # poids inverse à la fréquence
+  poids <- poids / sum(poids)              # pour avoir une somme égale à 1
+  
+  # Modèle Elastic Net
+  elast_model <- cv.glmnet(x = X_train_rf, y = Y, family = "multinomial", 
+                           weights = poids, alpha = 0.02, nfolds = 10)
+  # Valeur de alpha déterminée par essais sur data_train.
+  
+  # Prédiction
+  data_pred <- predict(elast_model, newx = X_test_rf, 
+                       s = elast_model$lambda.min, type = "class")
+  
+  return(data_pred)
+}
+```
+
+
+
+
+
+## ***XGBoost***
+### **Résultats sur data_train2**
+### **Résultats sur data_test**
 Mettre numéro de la soumission sur Codabench.
 
-## *XGBoost*
-### ***Résultats sur data_train2***
-### ***Résultats sur data_test***
-Mettre numéro de la soumission sur Codabench.
 
-# ***\underline{Discussion}***
-## *Commentaires des résultats*
-## **Proposer des faits pour détailler les résultats (cohérence ou différences)**
+
+\newpage
+
+
+# ***\textcolor{blue}{\underline{Discussion}}***
+## ***Commentaires des résultats***
+## ***Proposer des faits pour détailler les résultats (cohérence ou différences)***
 
