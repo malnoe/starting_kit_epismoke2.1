@@ -18,6 +18,8 @@ Code de mise en forme des titres :
 
 !! Attention dans les blocs de code aux lignes trop longues !!
 
+!! Attention à ton image Garance !!
+
 
 ```{r, echo = FALSE, warning = FALSE, error = FALSE}
 # Mettre toutes les librairies ici comme ça on se perd pas (on mettra le bloc au début du rapport après)
