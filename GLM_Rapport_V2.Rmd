@@ -1,6 +1,6 @@
 ---
 title: "GLM - Data challenge Epismoke 2.1"
-author: "Garance Malnoë, Matthias Mazet, Léonie Breuzat"
+author: "Garance Malnoë,  Léonie Breuzat, Matthias Mazet"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
@@ -9,30 +9,15 @@ output:
 geometry: margin = 1.8 cm
 ---
 
-Code de mise en forme des titres :
-  - #     =>   ***\textcolor{blue}{\underline{titre}}***
-  - ##    =>   ***sous-titre***
-  - ###   =>   **sous-sous-titre**
+\newpage
 
-
-
-!! Attention dans les blocs de code aux lignes trop longues !!
-
-!! Attention à ton image Garance !!
-
-
-```{r, echo = FALSE, warning = FALSE, error = FALSE}
-# Mettre toutes les librairies ici comme ça on se perd pas (on mettra le bloc au début du rapport après)
+Nous utiliserons les librairies suivantes :
+```{r , warning = FALSE, error = FALSE}
 library(knitr)
 library(Matrix)
 library(glmnet)
 library(randomForest)
 ```
-
-
-
-
-\newpage
 
 Ce data challenge consiste à prédire le statut tabagique d'individu : actuellement fumeur (`current`), ancien fumer (`former`) ou n'ayant jamais fumé (`never`). Pour cela, nous allons étudier trois méthodes différentes que nous entraînerons sur le jeu de données `data_train` et que nous testerons sur le jeu de données `data_test`. 
 ```{r}
@@ -49,6 +34,8 @@ Les deux jeux de données `data_train` et `data_test` sont composés respectivem
 - `never01`, `former01`, `current01` : les transformations en variables binaires de la variable `smoking_status` qui vont nous permettre de construire les modèles.
 
 - `cg########` : variables quantitatives (sondes) représentant le taux de méthylation de différents gènes. Elles joueront ici le rôle des variables explicatives.
+
+
 
 
 
@@ -97,14 +84,30 @@ Nous pouvons remarquer que les proportions de chaque groupe (chaque statut tabag
 tab_train1 <- prop.table(table(data_train1$smoking_status))
 tab_train2 <- prop.table(table(data_train2$smoking_status))
 tab_comp <- cbind(tab_train1, tab_train2)
-kable(tab_comp, align = "r", digits = 2, col.names = c("Fréquence sur data_train1", "Fréquence sur data_train1"))
+kable(tab_comp, align = "r", digits = 2, 
+      col.names = c("Fréquence sur data_train1", "Fréquence sur data_train1"))
 ```
 
 
-################################################################################
-#########################  Tri des sondes à revoir  ############################
-################################################################################
-Pour les trois modèles, nous n'allons pas utiliser toutes les sondes pour construire nos modèles pour éviter le sur-ajustement et car certaines sondes n'apportent pas ou peu d'informations. Pour sélectionner les sondes, nous allons construire les modèles linéaires de la forme `lm(sonde~smoking_status)` pour chaque sonde. Cela nous permettra d'étudier la significativité du lien entre le statut tabagique et chaque sonde  à partir de la p-valeur associée au coefficient directeur et ainsi de classer les sondes. 
+# ***\textcolor{blue}{\underline{Méthodes étudiées}}***
+
+Nous allons étudier trois méthodes différentes pour ce data challenge : un arbre de décision construit à partir de modèles linéaires, un algorithme Elastic Net et un algorithme XGBoost. Nous détaillons chacune de ces méthodes dans les parties suivantes.
+
+## ***Arbre de décision à partir de modèles linéaires***
+### **Idée du modèle**
+L'idée de ce modèle se construit en trois étapes :
+
+- d'abord, un premier modèle permettant de séparer les individus en deux groupes selon un des trois statuts tabagiques ;
+
+- ensuite, un second modèle entraîné uniquement sur les données des individus des deux autres statuts pour à nouveau séparer les individus restants dans deux groupes selon un des deux statuts tabagiques restants ;
+
+- finalement, combiner ces deux modèles pour n'en former qu'un seul : un arbre de décision.
+
+Voici un exemple : \ 
+![This is an image](image_arbre_decision.jpg)
+### **Prétraitement des variables**
+
+Pour ce modèle, nous n'allons pas utiliser toutes les sondes pour construire nos modèles pour éviter le sur-ajustement et car certaines sondes n'apportent pas ou peu d'informations. Pour sélectionner les sondes, nous allons construire les modèles linéaires de la forme `lm(sonde~smoking_status)` pour chaque sonde. Cela nous permettra d'étudier la significativité du lien entre le statut tabagique et chaque sonde  à partir de la p-valeur associée au coefficient directeur et ainsi de classer les sondes. 
 ```{r}
 siscreening <- function(data_train) {
   probes <- colnames(data_train)[5:length(data_train)]  # Noms des sondes
@@ -145,35 +148,6 @@ head(sis_res[sis_probes, ])
 ```
 
 
-################################################################################
-################################################################################
-################################################################################
-
-
-
-\newpage
-
-
-
-\newpage
-
-
-# ***\textcolor{blue}{\underline{Méthodes étudiées}}***
-
-Nous allons étudier trois méthodes différentes pour ce data challenge : un arbre de décision construit à partir de modèles linéaires, un algorithme Elastic Net et un algorithme XGBoost. Nous détaillons chacune de ces méthodes dans les parties suivantes.
-
-## ***Arbre de décision à partir de modèles linéaires***
-### **Idée du modèle**
-L'idée de ce modèle se construit en trois étapes :
-- d'abord, un premier modèle permettant de séparer les individus en deux groupes selon un des trois statuts tabagiques ;
-
-- ensuite, un second modèle entraîné uniquement sur les données des individus des deux autres statuts pour à nouveau séparer les individus restants dans deux groupes selon un des deux statuts tabagiques restants ;
-
-- finalement, combiner ces deux modèles pour n'en former qu'un seul : un arbre de décision.
-
-Voici un exemple : \ 
-![This is an image](image_arbre_decision.jpg)
-
 ### **Premier modèle**
 Nous allons construire pour les trois statuts tabagiques (`never`, `current` et `former`) le premier modèle ayant pour but de prédire si un individu est du statut considéré ou non. Pour chacun de ces modèles, nous allons également réaliser une études des meilleurs hyperparamètres (nombres de sondes et seuil de décision) pour obtenir le meilleur modèle possible. Finalement, nous comparerons les trois modèles sur leur précision (proportion de prédiction correctes).
 
@@ -198,7 +172,7 @@ for (i in 0:50) {
   iap2 <- c(iap2, sum(ifelse(pred_train2 > 0.5, 1, 0) != data_train2$current01) / nrow(data_train2))
 }
 plot(iap1, col = 4, pch = 16, cex = 1, 
-     main = "Incorrect Answers Proportion en fonction du nombre de sondes sur les deux jeux de données",
+     main = "Incorrect Answers Proportion en fonction du nombre de sondes",
      xlab = "Nombre de sondes", ylab = "Incorrect Answers Proportion", 
      cex.main = 0.8)
 points(iap2, col = 2, pch = 16, cex = 1)
@@ -330,7 +304,7 @@ for (i in 0:50) {
   iap2 = c(iap2, sum(ifelse(pred_train2 > 0.5, 1, 0) != data_train2$never01) / nrow(data_train2))
 }
 plot(iap2, col = 2, pch = 16, cex = 1, ylim = c(0.10, 0.40), 
-     main = "Incorrect Answers Proportion en fonction du nombre de sondes sur les deux jeux de données",
+     main = "Incorrect Answers Proportion en fonction du nombre de sondes",
      xlab = "Nombre de sondes", ylab = "Incorrect Answers Proportion", 
      cex.main = 0.8)
 points(iap1, col = 4, pch = 16, cex = 1)
@@ -456,7 +430,7 @@ for (i in 0:50) {
            sum(ifelse(pred_train2 > 0.5, 1, 0) != data_train2$former01) / nrow(data_train2))
 }
 plot(iap1, col = 4, pch = 16, cex = 1, ylim = c(0.15, 0.5), cex.axis = 0.8,
-     main = "Incorrect Answers Proportion en fonction du nombre de sondes sur les deux jeux de données",
+     main = "Incorrect Answers Proportion en fonction du nombre de sondes",
      xlab = "Nombre de sondes", ylab = "Incorrect Answers Proportion", 
      cex.main = 0.8)
 points(iap2, col = 2, pch = 16, cex = 1)
@@ -578,7 +552,7 @@ dim(data_train2_notcurrent)
 ```
 Pour `data_train2`, on passe de 105 individus à 69.
 
-Commençons par le modèle `never`. Le processus est le même que précédemment : on a une fonction pour crée les modèles basés sur les i meilleures sondes, on a une fonction `step` qui permet de trouver le meilleur modèle (AIC) pour les i meilleurs sondes, on effectué un hyperparamétrage pour trouver le meilleur nombre de sondes et le meilleur seuil pour améliorer la précision mais cette fois en testant sur `data_train2_notcurrent` et en s’entraînant sur `data_train1_notcurrent`.
+Commençons par le modèle `never`. Le processus est le même que précédemment : nous avons une fonction pour créer les modèles basés sur les i meilleures sondes, nous vons une fonction `step` qui permet de trouver le meilleur modèle (AIC) pour les i meilleurs sondes, nous effectuons un hyperparamétrage pour trouver le meilleur nombre de sondes et le meilleur seuil pour améliorer la précision mais cette fois en testant sur `data_train2_notcurrent` et en s’entraînant sur `data_train1_notcurrent`.
 ```{r}
 # NOT CURRENT - NEVER
 model_never_sis_i <- function(data_train, i, screening_func=msiscreening) {
@@ -589,10 +563,14 @@ model_never_sis_i <- function(data_train, i, screening_func=msiscreening) {
 
 # On effectue un step 
 stepforward_never <- function(data_train, sis_probes, nb_sis_probes = 200, trace = 0, k = 2) {
-  m_lo <- glm(never01 ~ 1, data = data_train[, c("never01", sis_probes[1:nb_sis_probes])])
-  m_sup <- glm(never01 ~ ., data = data_train[, c("never01", sis_probes[1:nb_sis_probes])])
-  m_fwd <- step(m_lo, method = "forward", scope = list(upper = m_sup, lower = m_lo), trace = trace, k = k)
-  # print(m_fwd$call)
+  m_lo <- glm(never01 ~ 1, data = data_train[, c("never01", 
+                                                 sis_probes[1:nb_sis_probes])])
+  m_sup <- glm(never01 ~ ., data = data_train[, c("never01", 
+                                                  sis_probes[1:nb_sis_probes])])
+  m_fwd <- step(m_lo, 
+                method = "forward", 
+                scope = list(upper = m_sup, lower = m_lo), 
+                trace = trace, k = k)
   return(m_fwd)
 }
 
@@ -607,7 +585,10 @@ predict_notcurrent_never <- function(data,step_model, seuil) {
 create_modeles_notcurrent_never <- function(from = 50, to = 200, by = 10) {
   res <- list()
   for (i in seq(from = from, to = to, by = by)) {
-    res[[length(res) + 1]] <- stepforward_never(data_train1_notcurrent, sis_probes, nb_sis_probes = i, trace = 0)
+    res[[length(res) + 1]] <- stepforward_never(data_train1_notcurrent, 
+                                                sis_probes, 
+                                                nb_sis_probes = i, 
+                                                trace = 0)
   }
   return(res)
 }
@@ -654,10 +635,19 @@ model_former_sis_i <- function(data_train, i, screening_func = msiscreening) {
 }
 
 # On effectue un step 
-stepforward_former <- function(data_train, sis_probes, nb_sis_probes = 200, trace = 0, k = 2) {
-  m_lo <- glm(former01 ~ 1, data = data_train[, c("former01", sis_probes[1:nb_sis_probes])])
-  m_sup <- glm(former01 ~ ., data = data_train[, c("former01", sis_probes[1:nb_sis_probes])])
-  m_fwd <- step(m_lo, method = "forward", scope = list(upper = m_sup, lower = m_lo), trace = trace, k = k)
+stepforward_former <- function(data_train, 
+                               sis_probes, 
+                               nb_sis_probes = 200, 
+                               trace = 0,
+                               k = 2) {
+  m_lo <- glm(former01 ~ 1, data = data_train[, c("former01", 
+                                                  sis_probes[1:nb_sis_probes])])
+  m_sup <- glm(former01 ~ ., data = data_train[, c("former01", 
+                                                   sis_probes[1:nb_sis_probes])])
+  m_fwd <- step(m_lo, 
+                method = "forward", 
+                scope = list(upper = m_sup, lower = m_lo), 
+                trace = trace, k = k)
   # print(m_fwd$call)
   return(m_fwd)
 }
@@ -673,14 +663,18 @@ predict_notcurrent_former <- function(data,step_model, seuil) {
 create_modeles_notcurrent_former <- function(from = 50, to = 200, by = 10) {
   res <- list()
   for (i in seq(from = from, to = to, by = by)) {
-    res[[length(res) + 1]] <- stepforward_former(data_train1_notcurrent, sis_probes, nb_sis_probes = i, trace = 0)
+    res[[length(res) + 1]] <- stepforward_former(data_train1_notcurrent, 
+                                                 sis_probes, 
+                                                 nb_sis_probes = i,
+                                                 trace = 0)
   }
   return(res)
 }
 modeles_notcurrent_former <- create_modeles_notcurrent_former()
 
 # Fonction pour l'hyperparamétrage de former
-hyperparametrage_notcurrent_former<- function(data, list_modeles_former, list_seuil_former) {
+hyperparametrage_notcurrent_former<- function(data, list_modeles_former,
+                                              list_seuil_former) {
   best_accuracy <- 0
   best_seuil_former <- 0
   best_num_model_former <- 1
@@ -692,7 +686,9 @@ hyperparametrage_notcurrent_former<- function(data, list_modeles_former, list_se
   for (step_model_former in list_modeles_former) {
     num_model_former <- num_model_former +1
     for (seuil_former in list_seuil_former) {
-      confusion_matrix <- table(Predicted = predict_former(data, step_model_former, seuil_former), 
+      confusion_matrix <- table(Predicted = predict_former(data,
+                                                           step_model_former,
+                                                           seuil_former), 
                                 Actual = data$former01)
       accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
       if (accuracy > best_accuracy) {
@@ -715,19 +711,24 @@ La précision est la même pour les deux, nous sélectionnons arbitrairement `ne
 ### **Combinaison des deux modèles**
 Enfin, on combine les deux modèles trouvés précédemment pour construire notre arbre de décision.
 ```{r}
-predict_current_never<- function(data, step_model_current, seuil_current, step_model_never, seuil_never) {
+predict_current_never<- function(data, step_model_current, 
+                                 seuil_current, step_model_never, seuil_never) {
   
   # Initialisation du vecteur résultat
   n <- nrow(data)
   predictions <- rep(NA, times = n)
   
   # Prédictions pour "current"
-  is_current <- predict_current(data, step_model_current, seuil_current) == 1
+  is_current <- predict_current(data, 
+                                step_model_current, 
+                                seuil_current) == 1
   predictions[is_current] <- "current"
   
   # Prédictions pour "never" parmi les non-classés
   remaining <- is.na(predictions)
-  is_never <- predict_notcurrent_never(data[remaining, ], step_model_never, seuil_never) == 1
+  is_never <- predict_notcurrent_never(data[remaining, ], 
+                                       step_model_never, 
+                                       seuil_never) == 1
   predictions[which(remaining)[is_never]] <- "never"
   
   # Tout le reste est "former"
@@ -736,21 +737,31 @@ predict_current_never<- function(data, step_model_current, seuil_current, step_m
   return(predictions)
 }
 
-model_current_final <- stepforward_current(data_train1, sis_probes, nb_sis_probes = 190,trace = 0)
+model_current_final <- stepforward_current(data_train1, 
+                                           sis_probes, 
+                                           nb_sis_probes = 190,
+                                           trace = 0)
 
-model_never_final <- stepforward_never(data_train1_notcurrent, sis_probes, nb_sis_probes = 100, trace =0)
+model_never_final <- stepforward_never(data_train1_notcurrent, 
+                                       sis_probes, 
+                                       nb_sis_probes = 100, 
+                                       trace =0)
 ```
 
 
 ```{r}
 # Essai sur data_train2
-predicted <- predict_current_never(data_train2, model_current_final, 0.575, model_never_final, 0.725)
+predicted <- predict_current_never(data_train2, 
+                                   model_current_final, 
+                                   0.575, model_never_final, 
+                                   0.725)
 head(predicted, 10)
 ```
 
+\newpage
 
 ## ***Elastic Net***
-Nous voulions initialement faire un algorithme de Random Forest en deuxième modèle mais, après quelques tests effectués, nous nous sommes rendu compte qu'il n'était pas performant. Nous avons donc décidé d'explorer le modèle Elastic Net.
+Nous voulions initialement faire un algorithme de Random Forest en deuxième modèle mais, après quelques tests effectués, nous nous sommes rendu compte qu'il n'était pas performant (environ 50% de prédiction correctes). Nous avons donc décidé d'explorer les modèles du type Elastic Net.
 
 ### **Idée du modèle**
 Elastic Net est un modèle réalisant un ajustement entre deux pénalités tirés d'autres modèles :
@@ -765,7 +776,7 @@ Ainsi, lorsque $\alpha = 0$, nous avons simplement un modèle Ridge, et lorsque 
 Comme pour les deux autres modèles, Elastic Net possède aussi un hyperparamètre de régularisation $\lambda$ qui contrôle l'intensité de la pénalité : plus il est grand, plus la pénalité est forte, et donc plus les coefficients sont réduis. \
 Finalement, ce modèle vise à minimiser la somme de l'erreur quadratique moyenne (MSE) et de la pénalité ajustée et régularisée, c'est-à-dire réduire $MSE + \lambda\ \cdot P_{EN}$. 
 
-Elastic Net semble donc assez bien adapté aux données du data challenge puisque nous voulons à la fois réduire le nombre de sondes *et* gérer la corrélation de celles sélectionnées. Ce modèle est aussi bien construit afin d'éviter le risque sur-apprentissage, risque assez élevé avec des jeu de données comme ici où le nombres d'individus est très inférieur au nombre de variables.
+Elastic Net semble donc assez bien adapté aux données du data challenge puisque nous voulons à la fois réduire le nombre de sondes *et* gérer la corrélation de celles qui sont sélectionnées. Ce modèle est aussi bien construit afin d'éviter le risque sur-apprentissage, risque assez élevé avec des jeu de données comme ici où le nombres d'individus est très inférieur au nombre de variables.
 
 
 
@@ -1028,30 +1039,41 @@ elast_model <- cv.glmnet(x = X_train_rf, y = Y, family = "multinomial",
                          weights = poids, alpha = 0.02, nfolds = 10)
 ```
 
-
+\newpage
 
 ## ***XGBoost***
 
 
+
+
+
+
+
+
+
 \newpage
-
-
-
 
 # ***\textcolor{blue}{\underline{Résultats}}***
 
 ## ***Arbre de décision à partir de modèles linéaires***
 ### **Résultats sur data_train2**
 ```{r}
-predicted <- predict_current_never(data_train2, model_current_final, 0.575, model_never_final, 0.725)
-confusion_matrix <- table(Predicted = predicted, Actual = data_train2$smoking_status)
+predicted <- predict_current_never(data_train2, 
+                                   model_current_final, 
+                                   0.575,
+                                   model_never_final, 
+                                   0.725)
+confusion_matrix <- table(Predicted = predicted,
+                          Actual = data_train2$smoking_status)
 print(confusion_matrix)
-accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-print(paste("Précision :", accuracy))
+accuracy_data_train2_arbre <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Taux d'erreur :", 1-accuracy_data_train2_arbre))
 ```
 
 ### **Résultats sur data_test**
 La soumission correspondante sur Codabench est la numéro 493 du 16 décembre 2024 publiée par l'utilisateur malnoe.  Le résultat obtenu est de 0.475.
+
+\newpage
 
 ## ***Elastic Net***
 ### **Résultats sur data_train2**
@@ -1104,7 +1126,8 @@ program <- function(data_train, data_test) {
   # Sondes (variables explicatives)
   sondes <- colnames(data_train)[5:length(data_train)]
   
-  # Modèle de Random Forest pour estimer l'importance des sondes dans la prédiction
+  # Modèle de Random Forest pour estimer l'importance 
+  #des sondes dans la prédiction
   rf_model <- randomForest(smoking_status ~ ., 
                            data = data_train[, c("smoking_status", sondes)], 
                            ntree = 100, importance = TRUE)
@@ -1140,14 +1163,14 @@ program <- function(data_train, data_test) {
 ```
 
 
-
+\newpage
 
 
 ## ***XGBoost***
 ### **Résultats sur data_train2**
 ### **Résultats sur data_test**
 Mettre numéro de la soumission sur Codabench.
-
+La soumission correspondante sur Codabench est la numéro ??? du 18 décembre 2024 publiée par l'utilisateur ?. Le résultat obtenu est de ?. Il a été obtenu avec le programme suivant :
 
 
 \newpage
@@ -1155,5 +1178,10 @@ Mettre numéro de la soumission sur Codabench.
 
 # ***\textcolor{blue}{\underline{Discussion}}***
 ## ***Commentaires des résultats***
+Pour le modèle d'arbre de décision à partir de modèles linéaires, on observe une augmentation du taux d'erreur entre `data_train2` et `data_test` mais les deux restent assez proches. Cela est sûrement dû à la présence d'un léger sur-apprentissage malgré le fait que l'on ait essayé de l'éviter au maximum.
+
+Pour le modèle Elastic Net, il y a également un décalage entre le taux d'erreur pour `data_train2` et `data_test` mais il est plus faible, probablement grâce à la cross-validation. La différence est peut-être simplement lié a de légères différences entre les jeux de données `data_train` et `data_test`.
+
 ## ***Proposer des faits pour détailler les résultats (cohérence ou différences)***
+Le premier modèle présente des performances modestes, avec un taux d'erreur supérieur à 30 %. Cela peut s'expliquer par sa simplicité : le tri des sondes repose uniquement sur la méthode SIS suivi d'un STEP, ce qui laisse probablement subsister des corrélations entre variables. Par ailleurs, les modèles linéaires ne semblent pas parfaitement adaptés à notre problématique, caractérisée par un très grand nombre de variables (~1000) pour un nombre relativement restreint d'individus (~600). En revanche, le modèle Elastic Net, choisi spécifiquement pour répondre à ces limitations, s'avère plus performant, avec un taux d'erreur inférieur à 30 %.
 
