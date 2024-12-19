@@ -1,6 +1,6 @@
 ---
 title: "GLM - Data challenge Epismoke 2.1"
-author: "Garance Malnoë,  Léonie Breuzat, Matthias Mazet"
+author: "Garance Malnoë,  Léonie Breuza, Matthias Mazet"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
@@ -12,7 +12,7 @@ geometry: margin = 1.8 cm
 \newpage
 
 Nous utiliserons les librairies suivantes :
-```{r , warning = FALSE, error = FALSE}
+```{r , message = FALSE, warning = FALSE, error = FALSE}
 library(knitr)
 library(Matrix)
 library(glmnet)
@@ -24,7 +24,7 @@ library(Matrix)
 library(FactoMineR)
 ```
 
-Ce data challenge consiste à prédire le statut tabagique d'individu : actuellement fumeur (`current`), ancien fumer (`former`) ou n'ayant jamais fumé (`never`). Pour cela, nous allons étudier trois méthodes différentes que nous entraînerons sur le jeu de données `data_train` et que nous testerons sur le jeu de données `data_test`. 
+Ce data challenge consiste à prédire le statut tabagique d'individu : actuellement fumeur (`current`), ancien fumer (`former`) ou n'ayant jamais fumé (`never`). Pour cela, nous allons étudier quatre méthodes différentes que nous entraînerons sur le jeu de données `data_train` et que nous testerons sur le jeu de données `data_test`. 
 ```{r}
 data_train <- readRDS(file = "data_train.rds") # Données d'entraînement 
 data_test <- readRDS(file = "data_test.rds") # Données de test
@@ -1049,14 +1049,22 @@ elast_model <- cv.glmnet(x = X_train_rf, y = Y, family = "multinomial",
 ## ***XGBoost***
 ### ***Idée du modèle***
 XGBoost est un modèle de machine learning s'appuyant sur les arbres de décision auxquels est rajouté un boosting de gradient. Il est très rapide et efficace, notamment sur les grands jeux de données. En effet, il s'appuie sur le calcul parallèle et distribué. 
+
 Cependant, il est moins optimal lorsque le jeu de données a une proportion de dimensions plus élévée que celle du nombre d'individus. En effet, les modèles d'arbres vont avoir tendance à sur-ajuster sur des ensembles de données plus petits. Ce qui est notre cas ici.
 Il peut être modulé selon un grand nombre d'hyperparamètres, tels que : 
-- nrounds : nombre d'arbres à construire
-- max_depth : profondeur maximale des arbres
-- colsample_bytree : fraction des colonnes utilisée pour chaque arbre
-- eta : taux d'apprentissage du modèle
-- gamma : réduction minimale de la perte nécessaire pour diviser un noeud
-- min_child_weight : poids minimum nécessaire pour un noeud
+
+- nrounds : nombre d'arbres à construire.
+
+- max_depth : profondeur maximale des arbres.
+
+- colsample_bytree : fraction des colonnes utilisée pour chaque arbre.
+
+- eta : taux d'apprentissage du modèle.
+
+- gamma : réduction minimale de la perte nécessaire pour diviser un noeud.
+
+- min_child_weight : poids minimum nécessaire pour un noeud.
+
 - subsample : fractionnement des données d'entraînement utilisé pour chaque arbre.
 
 ### ***Premier modèle***
@@ -1099,20 +1107,16 @@ Nous développons ensuite une barre de progression, associée au calcul du modè
 ```{r}
 # Création de la barre de progression
 total_iters <- length(xgbGrid)  # Nombre total d'itérations (selon le nombre d'hyperparamètres dans tuneGrid)
-progress_bar <- txtProgressBar(min = 0, max = total_iters, style = 3)
 
 # Fonction de calcul du modèle
 train_with_progress <- function(X_train, Y_train, xgb_trcontrol, tuneGrid) {
   model <- NULL
   for (i in 1:total_iters) {
-    # Mise à jour de la barre de progression après chaque itération
-    setTxtProgressBar(progress_bar, i)
     
     # Entraînement du modèle pour la combinaison d'hyperparamètres en cours
     model <- train(x = X_train, Y_train, method = "xgbTree",  
                    trControl = xgb_trcontrol, tuneGrid = tuneGrid[i, , drop = FALSE], metric = "Accuracy")
   }
-  close(progress_bar)
   return(model)
 }
 ```
@@ -1179,12 +1183,19 @@ Encore une fois, le taux d'erreur est trop important est quasimment identique au
 ## ***SVM***
 ### ***Idée du modèle***
 Afin de lutter contre les problèmes du XGBoost, nous nous sommes renseignés sur les méthodes de classification pertinentes sur les jeux de données ayant plus de variables que d'individus. La SVM semble correspondre à cette problématique. 
+
 La SVM se base sur un hyperplan où les données sont séparées en plusieures classes, afin de répondre à des problèmes de classification. 
+
 Il existe plusieurs hyperparamètres pouvant être modulés afin d'améliorer le modèle : 
-- kernel : le type de noyau à utiliser
-- C : le paramètre de régularisation de précision
-- degree : le degré du polynôme si le noyau est de type polynomial
-- probability : le vecteur des probabilités d'apartenir à chaque classe de la variable réponse
+
+- kernel : le type de noyau à utiliser.
+
+- C : le paramètre de régularisation de précision.
+
+- degree : le degré du polynôme si le noyau est de type polynomial.
+
+- probability : le vecteur des probabilités d'apartenir à chaque classe de la variable réponse.
+
 - gamma : l'influence d'un seul exemple d'entraînement si le noyau est de type radial.
 
 ### ***Premier modèle***
@@ -1337,7 +1348,6 @@ print(paste("Taux d'erreur :", 1-accuracy_data_train2_arbre))
 ### **Résultats sur data_test**
 La soumission correspondante sur Codabench est la numéro 493 du 16 décembre 2024 publiée par l'utilisateur malnoe.  Le résultat obtenu est de 0.475.
 
-\newpage
 
 ## ***Elastic Net***
 ### **Résultats sur data_train2**
@@ -1424,10 +1434,6 @@ program <- function(data_train, data_test) {
 }
 ```
 
-
-\newpage
-
-
 ## ***XGBoost***
 ### **Résultats sur data_train2**
 
@@ -1456,8 +1462,6 @@ Le taux d'erreur avec le modèle final de XGBoost est de : `r tx_erreur_xgb_acp`
 
 ### **Résultats sur data_test**
 Les résultats étant vraiment mauvais sur le jeu de données train2, nous ne l'avons donc pas soumis. De plus, Léonie n'avait pas de compte valide sur Codabench. 
-
-\newpage
 
 ## ***SVM***
 ### **Résultats sur data_train2**
@@ -1501,7 +1505,7 @@ program <- function(data_train, data_test) {
 }
 ```
 
-
+\newpage
 
 # ***\textcolor{blue}{\underline{Discussion}}***
 ## ***Commentaires des résultats***
@@ -1509,6 +1513,10 @@ Pour le modèle d'arbre de décision à partir de modèles linéaires, on observ
 
 Pour le modèle Elastic Net, il y a également un décalage entre le taux d'erreur pour `data_train2` et `data_test` mais il est plus faible, probablement grâce à la cross-validation. La différence est peut-être simplement lié a de légères différences entre les jeux de données `data_train` et `data_test`.
 
+Pour la méthode XGBoost, nous n'avons pas testé sur le jeu de données `data_test` à la vue de ses performances médiocres sur `data_train2`.
+
+Pour la méthode SVM, il y a un tout petit décalage entre le taux d'erreur sur `data_train2` et `data_test`. A nouveau, cette différence est sûrement plutôt liée à de légères différences entre les jeux de données plutôt que du sur-apprentissage.
+
 ## ***Proposer des faits pour détailler les résultats (cohérence ou différences)***
-Le premier modèle présente des performances modestes, avec un taux d'erreur supérieur à 30 %. Cela peut s'expliquer par sa simplicité : le tri des sondes repose uniquement sur la méthode SIS suivi d'un STEP, ce qui laisse probablement subsister des corrélations entre variables. Par ailleurs, les modèles linéaires ne semblent pas parfaitement adaptés à notre problématique, caractérisée par un très grand nombre de variables (~1000) pour un nombre relativement restreint d'individus (~600). En revanche, le modèle Elastic Net, choisi spécifiquement pour répondre à ces limitations, s'avère plus performant, avec un taux d'erreur inférieur à 30 %.
+Le premier modèle présente des performances modestes, avec un taux d'erreur supérieur à 30 %. Cela peut s'expliquer par sa simplicité : le tri des sondes repose uniquement sur la méthode SIS suivi d'un STEP, ce qui laisse probablement subsister des variables corrélées, ce qui amène du bruit dans le modèle. Par ailleurs, les modèles linéaires simples ne semblent pas parfaitement adaptés à notre problématique, caractérisée par un très grand nombre de variables (~1000) pour un nombre relativement restreint d'individus (~600). En revanche, le modèle Elastic Net, choisi spécifiquement pour répondre à ces limitations, s'avère plus performant, avec un taux d'erreur inférieur à 30 %. Et plus encore, le modèle SVM qui est adaptés aux jeux de données de grande dimensions montre encore des résultats plus performants. Cette dernière méthode pourrait même sans doute être encore améliorée avec du tunning de tous les hyperparamètres qui n'a pas été effectuée ici car elle nécessite encore d'autres fonctions et d'autres packages.
 
